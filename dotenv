@@ -1,0 +1,6 @@
+DISCORD_TOKEN=your_discord_bot_token
+DISCORD_CHANNEL_ID=your_discord_channel_id
+MC_HOST=your_minecraft_server_address
+MC_PORT=25565
+MC_USERNAME=sexoov4
+MC_VERSION=1.19.4

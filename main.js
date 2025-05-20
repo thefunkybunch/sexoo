@@ -7,15 +7,15 @@ const { Client, GatewayIntentBits, Partials, EmbedBuilder } = require('discord.j
 // Bot configuration
 const config = {
   minecraft: {
-    host: 'localhost',    // Change to your server
-    port: 25565,          // Default Minecraft port
-    username: 'sexoov4',
-    version: '1.19.4'     // Change to your Minecraft version
+    host: process.env.MC_HOST || 'localhost',
+    port: parseInt(process.env.MC_PORT || '25565'),
+    username: process.env.MC_USERNAME || 'sexoov4',
+    version: process.env.MC_VERSION || '1.19.4'
   },
   discord: {
-    token: 'YOUR_DISCORD_BOT_TOKEN_HERE', // Replace with your Discord bot token
-    channelId: 'YOUR_DISCORD_CHANNEL_ID', // Replace with your Discord channel ID
-    prefix: '!'           // Command prefix for Discord commands
+    token: process.env.DISCORD_TOKEN,
+    channelId: process.env.DISCORD_CHANNEL_ID,
+    prefix: process.env.DISCORD_PREFIX || '!'
   }
 };
 
