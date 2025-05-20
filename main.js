@@ -2,17 +2,36 @@ const mineflayer = require('mineflayer');
 const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
 const pvp = require('mineflayer-pvp').plugin;
 const collectBlock = require('mineflayer-collectblock').plugin;
+const { Client, GatewayIntentBits, Partials, EmbedBuilder } = require('discord.js');
 
 // Bot configuration
 const config = {
-  host: 'localhost', // Change to your server
-  port: 25565,       // Default Minecraft port
-  username: 'sexoov4',
-  version: '1.19.4'  // Change to your Minecraft version
+  minecraft: {
+    host: 'localhost',    // Change to your server
+    port: 25565,          // Default Minecraft port
+    username: 'sexoov4',
+    version: '1.19.4'     // Change to your Minecraft version
+  },
+  discord: {
+    token: 'YOUR_DISCORD_BOT_TOKEN_HERE', // Replace with your Discord bot token
+    channelId: 'YOUR_DISCORD_CHANNEL_ID', // Replace with your Discord channel ID
+    prefix: '!'           // Command prefix for Discord commands
+  }
 };
 
-// Create the bot
-const bot = mineflayer.createBot(config);
+// Create Minecraft bot
+const bot = mineflayer.createBot(config.minecraft);
+
+// Create Discord client
+const discord = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.DirectMessages
+  ],
+  partials: [Partials.Channel]
+});
 
 // Global variables
 let whitelistedPlayers = []; // Add player names you want to whitelist
@@ -23,15 +42,16 @@ let followingPlayer = null;
 let followingInterval = null;
 let isFarming = false;
 let farmingInterval = null;
+let discordChannel = null;
 
-// Load plugins
+// Load Minecraft plugins
 bot.loadPlugin(pathfinder);
 bot.loadPlugin(pvp);
 bot.loadPlugin(collectBlock);
 
-// When bot spawns
+// When Minecraft bot spawns
 bot.once('spawn', () => {
-  console.log('Bot spawned! Type commands in chat.');
+  console.log('Minecraft bot spawned! Type commands in chat.');
   
   // Initialize pathfinder
   const mcData = require('minecraft-data')(bot.version);
@@ -41,14 +61,117 @@ bot.once('spawn', () => {
   
   // Set up chat listeners
   setupChatCommands();
+  
+  // Notify Discord that the bot is online
+  if (discordChannel) {
+    const embed = new EmbedBuilder()
+      .setColor('#00FF00')
+      .setTitle('Minecraft Bot Connected')
+      .setDescription(`${config.minecraft.username} is now online on ${config.minecraft.host}`)
+      .setTimestamp();
+    
+    discordChannel.send({ embeds: [embed] });
+  }
 });
 
-// Set up command handling
+// Discord bot ready event
+discord.once('ready', () => {
+  console.log(`Discord bot logged in as ${discord.user.tag}`);
+  
+  // Get the bridge channel
+  discordChannel = discord.channels.cache.get(config.discord.channelId);
+  
+  if (!discordChannel) {
+    console.error('Could not find the specified Discord channel!');
+  } else {
+    console.log(`Discord bridge connected to channel: ${discordChannel.name}`);
+  }
+});
+
+// Discord message handler
+discord.on('messageCreate', async (message) => {
+  // Ignore messages from bots or messages not in the bridge channel
+  if (message.author.bot || message.channel.id !== config.discord.channelId) return;
+  
+  const content = message.content.trim();
+  
+  // Check if it's a command
+  if (content.startsWith(config.discord.prefix)) {
+    handleDiscordCommand(message);
+  } else {
+    // Regular message - send to Minecraft
+    const discordUsername = message.author.username;
+    bot.chat(`[Discord] ${discordUsername}: ${content}`);
+  }
+});
+
+// Handle Discord commands
+function handleDiscordCommand(message) {
+  const content = message.content.trim();
+  const args = content.slice(config.discord.prefix.length).trim().split(/ +/);
+  const command = args.shift().toLowerCase();
+  
+  // Convert Discord command to Minecraft command format
+  switch (command) {
+    case 'kill':
+      handleKillCommand('Discord');
+      message.reply('Activating kill mode.');
+      break;
+    case 'farm':
+      handleFarmCommand('Discord');
+      message.reply('Starting farm mode.');
+      break;
+    case 'follow':
+      const playerToFollow = args[0];
+      handleFollowCommand('Discord', playerToFollow);
+      message.reply(`Attempting to follow ${playerToFollow || 'no player specified'}.`);
+      break;
+    case 'antiafk':
+      handleAntiAFKCommand('Discord');
+      message.reply(`Anti-AFK mode ${isAntiAFK ? 'enabled' : 'disabled'}.`);
+      break;
+    case 'mine':
+      const blockType = args.join(' ');
+      handleMineCommand('Discord', blockType);
+      message.reply(`Attempting to mine ${blockType || 'no block specified'}.`);
+      break;
+    case 'whitelist':
+      const playerToWhitelist = args[0];
+      handleWhitelistCommand('Discord', playerToWhitelist);
+      message.reply(`Whitelist updated for ${playerToWhitelist || 'no player specified'}.`);
+      break;
+    case 'stop':
+      handleStopCommand('Discord');
+      message.reply('Stopping all activities.');
+      break;
+    case 'help':
+      sendDiscordHelp(message);
+      break;
+    case 'players':
+      sendPlayerList(message);
+      break;
+    case 'status':
+      sendBotStatus(message);
+      break;
+    default:
+      // Execute the command directly in Minecraft if not recognized
+      bot.chat(`/${command} ${args.join(' ')}`);
+      message.reply(`Executed command: /${command} ${args.join(' ')}`);
+  }
+}
+
+// Set up Minecraft chat command handling
 function setupChatCommands() {
   bot.on('chat', (username, message) => {
     // Ignore messages from the bot itself
     if (username === bot.username) return;
     
+    // Forward the message to Discord
+    if (discordChannel) {
+      discordChannel.send(`**${username}**: ${message}`);
+    }
+    
+    // Check if it's a command
     const args = message.split(' ');
     const command = args[0].toLowerCase();
     
@@ -77,6 +200,53 @@ function setupChatCommands() {
       case 'help':
         handleHelpCommand(username);
         break;
+      case 'discord':
+        // Send a message to Discord from Minecraft
+        if (args.length > 1) {
+          const discordMessage = args.slice(1).join(' ');
+          if (discordChannel) {
+            discordChannel.send(`**[${username} → Discord]**: ${discordMessage}`);
+            bot.chat(`Message sent to Discord.`);
+          } else {
+            bot.chat(`Discord bridge not connected.`);
+          }
+        } else {
+          bot.chat(`Usage: discord <message>`);
+        }
+        break;
+    }
+  });
+  
+  // Forward game events to Discord
+  bot.on('playerJoined', (player) => {
+    if (discordChannel) {
+      discordChannel.send(`**${player.username}** joined the game`);
+    }
+  });
+  
+  bot.on('playerLeft', (player) => {
+    if (discordChannel) {
+      discordChannel.send(`**${player.username}** left the game`);
+    }
+  });
+  
+  bot.on('death', () => {
+    if (discordChannel) {
+      discordChannel.send(`**${bot.username}** died! Respawning...`);
+    }
+  });
+  
+  // Listen for server messages (like /say or server announcements)
+  bot.on('message', (jsonMsg) => {
+    // Convert the message to a readable string
+    const message = jsonMsg.toString().trim();
+    
+    // Don't forward chat messages (they're already handled)
+    if (jsonMsg.translate === 'chat.type.text') return;
+    
+    // Forward system messages to Discord
+    if (discordChannel && message) {
+      discordChannel.send(`**[Server]**: ${message}`);
     }
   });
 }
@@ -255,8 +425,61 @@ function handleHelpCommand(username) {
   bot.chat('antiafk - Toggle anti-AFK mode');
   bot.chat('mine <block> - Mine specified block type');
   bot.chat('whitelist <player> - Add/remove player from whitelist');
+  bot.chat('discord <message> - Send a message to Discord');
   bot.chat('stop - Stop all activities');
   bot.chat('help - Show this help message');
+}
+
+// Discord-specific command handlers
+function sendDiscordHelp(message) {
+  const embed = new EmbedBuilder()
+    .setColor('#0099FF')
+    .setTitle('sexoov4 Bot Commands')
+    .setDescription('Available commands for controlling the Minecraft bot:')
+    .addFields(
+      { name: `${config.discord.prefix}kill`, value: 'Attack hostile mobs' },
+      { name: `${config.discord.prefix}farm`, value: 'Harvest and replant crops' },
+      { name: `${config.discord.prefix}follow <player>`, value: 'Follow a player' },
+      { name: `${config.discord.prefix}antiafk`, value: 'Toggle anti-AFK mode' },
+      { name: `${config.discord.prefix}mine <block>`, value: 'Mine specified block type' },
+      { name: `${config.discord.prefix}whitelist <player>`, value: 'Add/remove player from whitelist' },
+      { name: `${config.discord.prefix}stop`, value: 'Stop all activities' },
+      { name: `${config.discord.prefix}players`, value: 'List online players' },
+      { name: `${config.discord.prefix}status`, value: 'Show bot status' },
+      { name: 'Send message to MC', value: 'Just type normally without prefix' }
+    )
+    .setFooter({ text: `Bot: ${config.minecraft.username} | Server: ${config.minecraft.host}` });
+  
+  message.channel.send({ embeds: [embed] });
+}
+
+function sendPlayerList(message) {
+  const playerNames = Object.keys(bot.players);
+  
+  const embed = new EmbedBuilder()
+    .setColor('#0099FF')
+    .setTitle('Online Players')
+    .setDescription(playerNames.length > 0 ? playerNames.join(', ') : 'No players online')
+    .setTimestamp();
+  
+  message.channel.send({ embeds: [embed] });
+}
+
+function sendBotStatus(message) {
+  const embed = new EmbedBuilder()
+    .setColor('#0099FF')
+    .setTitle('Bot Status')
+    .addFields(
+      { name: 'Bot Name', value: bot.username },
+      { name: 'Server', value: `${config.minecraft.host}:${config.minecraft.port}` },
+      { name: 'Health', value: `${bot.health.toFixed(1)}/20` },
+      { name: 'Food', value: `${bot.food.toFixed(1)}/20` },
+      { name: 'Position', value: `X: ${bot.entity.position.x.toFixed(1)}, Y: ${bot.entity.position.y.toFixed(1)}, Z: ${bot.entity.position.z.toFixed(1)}` },
+      { name: 'Active Modes', value: `Kill: ${bot.killInterval ? 'Yes' : 'No'}\nFarming: ${isFarming ? 'Yes' : 'No'}\nFollowing: ${isFollowing ? followingPlayer : 'No'}\nAnti-AFK: ${isAntiAFK ? 'Yes' : 'No'}` }
+    )
+    .setTimestamp();
+  
+  message.channel.send({ embeds: [embed] });
 }
 
 // Helper functions
@@ -277,7 +500,14 @@ function attackNearestHostile() {
   });
   
   if (entity) {
-    bot.chat(`Found hostile mob: ${entity.name}. Attacking!`);
+    const message = `Found hostile mob: ${entity.name}. Attacking!`;
+    bot.chat(message);
+    
+    // Also notify Discord
+    if (discordChannel) {
+      discordChannel.send(`**[Combat]**: ${message}`);
+    }
+    
     bot.pvp.attack(entity);
   } else {
     // Check for player attacks (except whitelisted players)
@@ -291,7 +521,14 @@ function attackNearestHostile() {
     });
     
     if (attackingPlayer) {
-      bot.chat(`${attackingPlayer.username} is attacking! Defending...`);
+      const message = `${attackingPlayer.username} is attacking! Defending...`;
+      bot.chat(message);
+      
+      // Also notify Discord
+      if (discordChannel) {
+        discordChannel.send(`**[Combat]**: ${message}`);
+      }
+      
       bot.pvp.attack(attackingPlayer);
     }
   }
@@ -319,7 +556,13 @@ function farmNearby() {
     });
     
     if (cropBlock) {
-      bot.chat(`Found ripe ${cropName} to harvest.`);
+      const message = `Found ripe ${cropName} to harvest.`;
+      bot.chat(message);
+      
+      // Also notify Discord
+      if (discordChannel) {
+        discordChannel.send(`**[Farming]**: ${message}`);
+      }
       
       // Path to the crop
       bot.pathfinder.setGoal(new goals.GoalBlock(
@@ -348,12 +591,27 @@ function farmNearby() {
             // Replant
             await bot.equip(seed, 'hand');
             await bot.placeBlock(bot.blockAt(cropBlock.position.offset(0, -1, 0)), new Vec3(0, 1, 0));
-            bot.chat(`Replanted ${cropName}.`);
+            const replantMsg = `Replanted ${cropName}.`;
+            bot.chat(replantMsg);
+            
+            if (discordChannel) {
+              discordChannel.send(`**[Farming]**: ${replantMsg}`);
+            }
           } else {
-            bot.chat(`No ${seedName} found in inventory for replanting.`);
+            const noSeedMsg = `No ${seedName} found in inventory for replanting.`;
+            bot.chat(noSeedMsg);
+            
+            if (discordChannel) {
+              discordChannel.send(`**[Farming]**: ${noSeedMsg}`);
+            }
           }
         } catch (err) {
-          bot.chat(`Error while farming: ${err.message}`);
+          const errorMsg = `Error while farming: ${err.message}`;
+          bot.chat(errorMsg);
+          
+          if (discordChannel) {
+            discordChannel.send(`**[Error]**: ${errorMsg}`);
+          }
         }
       });
       
@@ -368,7 +626,13 @@ function followPlayer() {
   const player = bot.players[followingPlayer];
   
   if (!player || !player.entity) {
-    bot.chat(`Cannot see ${followingPlayer}. Stopping follow.`);
+    const message = `Cannot see ${followingPlayer}. Stopping follow.`;
+    bot.chat(message);
+    
+    if (discordChannel) {
+      discordChannel.send(`**[Follow]**: ${message}`);
+    }
+    
     clearInterval(followingInterval);
     isFollowing = false;
     return;
@@ -380,16 +644,65 @@ function followPlayer() {
 
 // Error handling
 bot.on('error', (err) => {
-  console.error('Bot error:', err);
+  console.error('Minecraft bot error:', err);
+  
+  if (discordChannel) {
+    discordChannel.send(`**[Error]**: Minecraft bot encountered an error: ${err.message}`);
+  }
 });
 
 bot.on('kicked', (reason) => {
-  console.log('Bot was kicked from the server. Reason:', reason);
+  console.log('Minecraft bot was kicked from the server. Reason:', reason);
+  
+  if (discordChannel) {
+    discordChannel.send(`**[Disconnected]**: Bot was kicked from the server. Reason: ${reason}`);
+  }
 });
 
 bot.on('end', () => {
-  console.log('Bot disconnected from the server.');
+  console.log('Minecraft bot disconnected from the server.');
+  
+  if (discordChannel) {
+    discordChannel.send('**[Disconnected]**: Bot has disconnected from the Minecraft server.');
+  }
+  
   // You could implement reconnection logic here
+  setTimeout(() => {
+    console.log('Attempting to reconnect...');
+    
+    if (discordChannel) {
+      discordChannel.send('**[Reconnecting]**: Attempting to reconnect to the Minecraft server...');
+    }
+    
+    // Reset the bot with the same config
+    bot = mineflayer.createBot(config.minecraft);
+    
+    // Re-load plugins and set up listeners
+    bot.loadPlugin(pathfinder);
+    bot.loadPlugin(pvp);
+    bot.loadPlugin(collectBlock);
+    
+    bot.once('spawn', () => {
+      console.log('Bot reconnected!');
+      
+      if (discordChannel) {
+        discordChannel.send('**[Connected]**: Bot has successfully reconnected to the Minecraft server!');
+      }
+      
+      // Re-initialize pathfinder
+      const mcData = require('minecraft-data')(bot.version);
+      const movements = new Movements(bot, mcData);
+      movements.allowSprinting = true;
+      bot.pathfinder.setMovements(movements);
+      
+      // Re-setup chat listeners
+      setupChatCommands();
+    });
+  }, 5000);
+});
+
+discord.on('error', (err) => {
+  console.error('Discord bot error:', err);
 });
 
 // Define Vec3 for block placement
@@ -400,3 +713,6 @@ class Vec3 {
     this.z = z;
   }
 }
+
+// Start the Discord bot
+discord.login(config.discord.token);

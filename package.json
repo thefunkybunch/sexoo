@@ -10,6 +10,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "discord.js": "^14.19.3",
     "minecraft-data": "^3.89.0",
     "mineflayer": "^4.25.0",
     "mineflayer-collectblock": "^1.6.0",
