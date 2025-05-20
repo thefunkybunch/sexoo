@@ -1,5 +1,5 @@
 # Sexo v4
-Sexoo was a Mineflayer bot made by a bunch of people, it was really rudimentry but it was mostly meant for chat trolling since 7b7t didn't have any real spam protection back then.
+Sexoo was a Mineflayer bot made by a bunch of people back in 2021, it was really rudimentry but it was mostly meant for chat trolling since 7b7t didn't have any real spam protection back then.
 
 This bot I partially made for automation on a factions server I used to play but I plan on adding chat functionality now since if I'm using the Sexoo name I should atleast add what the bot was originally made for.
 
